@@ -68,10 +68,17 @@ jobs:
         env:
           UDID: ${{ steps.sim.outputs.udid }}
         run: |
+          rm -rf "$RECORDINGS/screenshots"
           mkdir -p "$RECORDINGS/screenshots" raw
-          xcrun simctl io "$UDID" recordVideo --codec=h264 --force raw/iceland-demo.mp4 &
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force raw/iceland-demo.mp4 > raw/record.log 2>&1 &
           REC_PID=$!
-          sleep 3
+          # recordVideo can take close to a minute to attach to the display.
+          for _ in $(seq 1 120); do
+            grep -q "Recording started" raw/record.log && break
+            sleep 1
+          done
+          cat raw/record.log
+          sleep 2
 
           set +e
           xcodebuild test-without-building \
@@ -79,15 +86,17 @@ jobs:
             -destination "id=$UDID" \
             -derivedDataPath build \
             -resultBundlePath raw/UITour.xcresult \
+            -collect-test-diagnostics never \
             -only-testing:IcelandUITests/AppTourUITests/testAppTour > raw/xcodebuild-test.log 2>&1 &
           TEST_PID=$!
 
           # Grab a still every few seconds while the tour runs.
           i=0
           while kill -0 "$TEST_PID" 2>/dev/null; do
-            sleep 6
+            sleep 5
             i=$((i + 1))
-            xcrun simctl io "$UDID" screenshot --type=jpeg "$RECORDINGS/screenshots/$(printf '%02d' "$i").jpg" >/dev/null 2>&1
+            shot="$RECORDINGS/screenshots/$(printf '%03d' "$i").jpg"
+            xcrun simctl io "$UDID" screenshot --type=jpeg "$shot" >/dev/null 2>&1 && sips -Z 900 "$shot" >/dev/null 2>&1
           done
           wait "$TEST_PID"
           STATUS=$?
@@ -111,17 +120,24 @@ jobs:
             raw/UITour.xcresult
           if-no-files-found: warn
 
+      # Screenshots are committed even when the tour fails so the run can be inspected without
+      # downloading the artifact; the video is only committed for a successful tour.
       - name: Commit recording to the branch
-        if: success() && github.ref_type == 'branch'
+        if: always() && github.ref_type == 'branch' && steps.sim.outcome == 'success'
+        env:
+          TOUR_OK: ${{ job.status == 'success' }}
         run: |
-          size=$(stat -f%z "$RECORDINGS/iceland-iphone18promax.mp4")
-          if [ "$size" -gt 95000000 ]; then
-            echo "Video is $size bytes, too large to commit; it is still available as an artifact."
-            exit 0
+          video="$RECORDINGS/iceland-iphone18promax.mp4"
+          if [ "$TOUR_OK" != "true" ]; then
+            rm -f "$video"
+          elif [ "$(stat -f%z "$video")" -gt 95000000 ]; then
+            echo "Video is too large to commit; it is still available as an artifact."
+            rm -f "$video"
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Recordings
-          git commit -m "Add iPhone 18 Pro Max demo recording [skip ci]" || exit 0
+          git add -A Recordings
+          if [ "$TOUR_OK" = "true" ]; then msg="Add iPhone 18 Pro Max demo recording [skip ci]"; else msg="Add screenshots from failed demo run [skip ci]"; fi
+          git commit -m "$msg" || exit 0
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"

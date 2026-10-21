@@ -67,17 +67,18 @@ final class AppTourUITests: XCTestCase {
         // Map tab: jump between attractions.
         tab("地圖").tap()
         pause(3)
-        for id in ["gullfoss", "skogafoss", "jokulsarlon"] {
+        for id in ["blue-lagoon", "gullfoss", "skogafoss", "jokulsarlon"] {
             let chip = app.buttons["chip-\(id)"]
+            guard chip.waitForExistence(timeout: 3) else { continue }
+            // Offscreen chips have no valid hit point, so check the frame instead of isHittable.
             var swipes = 0
-            while chip.exists && !chip.isHittable && swipes < 4 {
-                app.scrollViews.firstMatch.swipeLeft(velocity: .slow)
+            while !isOnScreen(chip), swipes < 6 {
+                swipeLeft(atY: chip.frame.midY)
+                pause(0.5)
                 swipes += 1
             }
-            if chip.waitForExistence(timeout: 3) {
-                chip.tap()
-                pause(3)
-            }
+            chip.tap()
+            pause(3)
         }
         let mapCard = app.buttons["mapCard"]
         if mapCard.waitForExistence(timeout: 3) {
@@ -128,6 +129,19 @@ final class AppTourUITests: XCTestCase {
             swipes += 1
         }
         XCTAssertTrue(element.isHittable, "\(element) never became hittable")
+    }
+
+    private func isOnScreen(_ element: XCUIElement) -> Bool {
+        let frame = element.frame
+        let screen = app.frame
+        return !frame.isEmpty && frame.minX >= screen.minX + 8 && frame.maxX <= screen.maxX - 8
+    }
+
+    private func swipeLeft(atY y: CGFloat) {
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: app.frame.width * 0.8, dy: y))
+        let end = origin.withOffset(CGVector(dx: app.frame.width * 0.3, dy: y))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
     }
 
     private func goBack() {

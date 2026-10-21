@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -21,23 +22,26 @@ USER_AGENT = "IcelandSwiftUIDemo/1.0 (https://github.com/PeterPanSwift/Iceland; 
 OUT_DIR = Path(__file__).resolve().parent.parent / "Iceland" / "Resources" / "Photos"
 THUMB_WIDTH = 1280
 
-# photo id -> Commons search terms
+# photo id -> (Commons search terms, words the file title must contain one of)
 PHOTOS = {
-    "aurora": "Aurora borealis Iceland",
-    "reykjavik": "Reykjavik Hallgrimskirkja city view",
-    "blue-lagoon": "Blue Lagoon Iceland",
-    "gullfoss": "Gullfoss",
-    "geysir": "Strokkur eruption",
-    "thingvellir": "Þingvellir",
-    "seljalandsfoss": "Seljalandsfoss",
-    "skogafoss": "Skógafoss",
-    "reynisfjara": "Reynisfjara",
-    "jokulsarlon": "Jökulsárlón",
-    "kirkjufell": "Kirkjufell",
-    "hallgrimskirkja": "Hallgrímskirkja",
-    "dettifoss": "Dettifoss",
-    "myvatn": "Mývatn",
+    "aurora": ("Aurora borealis Iceland", ["aurora", "northern lights"]),
+    "reykjavik": ("Reykjavik city view", ["reykjav"]),
+    "blue-lagoon": ("Blue Lagoon Grindavik", ["blue lagoon", "blaa lon"]),
+    "gullfoss": ("Gullfoss", ["gullfoss"]),
+    "geysir": ("Strokkur eruption", ["strokkur"]),
+    "thingvellir": ("Þingvellir", ["ingvellir"]),
+    "seljalandsfoss": ("Seljalandsfoss", ["seljalandsfoss"]),
+    "skogafoss": ("Skógafoss", ["skogafoss"]),
+    "reynisfjara": ("Reynisfjara black sand beach", ["reynisfjara", "reynisdrangar"]),
+    "jokulsarlon": ("Jökulsárlón icebergs", ["jokulsarlon"]),
+    "kirkjufell": ("Kirkjufell", ["kirkjufell"]),
+    "hallgrimskirkja": ("Hallgrímskirkja", ["hallgrimskirkja"]),
+    "dettifoss": ("Dettifoss", ["dettifoss"]),
+    "myvatn": ("Mývatn Hverir", ["myvatn", "hverir"]),
 }
+
+# Titles with these words are usually close-ups of something other than the landmark.
+EXCLUDED_WORDS = ["seal", "bird", "puffin", "sign", "map", "logo", "people", "tourist", "panorama"]
 
 CATEGORY_FILTERS = [
     'incategory:"Featured pictures of Iceland"',
@@ -70,7 +74,12 @@ def strip_html(text):
     return html.unescape(re.sub(r"<[^>]+>", "", text or "")).strip()
 
 
-def search(terms):
+def normalized(text):
+    text = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
+def search(terms, keywords):
     data = get_json({
         "action": "query",
         "format": "json",
@@ -91,6 +100,9 @@ def search(terms):
             continue
         if width < 1800 or not 1.2 <= width / height <= 2.2:
             continue
+        title = normalized(page["title"])
+        if not any(k in title for k in keywords) or any(w in title for w in EXCLUDED_WORDS):
+            continue
         meta = info.get("extmetadata", {})
         return {
             "title": page["title"],
@@ -105,11 +117,11 @@ def search(terms):
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     credits = []
-    for photo_id, query in PHOTOS.items():
+    for photo_id, (query, keywords) in PHOTOS.items():
         choice = None
         for category in CATEGORY_FILTERS:
             try:
-                choice = search(f"{query} {category}".strip())
+                choice = search(f"{query} {category}".strip(), keywords)
             except Exception as exc:  # noqa: BLE001
                 print(f"  search error for {photo_id}: {exc}", file=sys.stderr)
             if choice:

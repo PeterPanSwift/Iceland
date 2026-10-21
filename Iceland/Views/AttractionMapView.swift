@@ -90,6 +90,7 @@ struct AttractionMapView: View {
             }
             .padding(.horizontal)
         }
+        .accessibilityIdentifier("chipRow")
     }
 }
 
