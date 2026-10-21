@@ -1,0 +1,127 @@
+name: Record iPhone 18 Pro Max demo
+
+on:
+  push:
+    paths-ignore:
+      - "Recordings/**"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: record-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SIMULATOR_NAME: iPhone 18 Pro Max
+  RECORDINGS: ${{ github.workspace }}/Recordings
+
+jobs:
+  record:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app || true
+          xcodebuild -version
+          xcrun simctl list runtimes
+          xcrun simctl list devices available | grep -i "iphone 18" || true
+
+      - name: Find Iceland photos on Wikimedia Commons
+        run: python3 scripts/fetch_photos.py
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Pick simulator
+        id: sim
+        run: echo "udid=$(python3 scripts/find_simulator.py "$SIMULATOR_NAME")" >> "$GITHUB_OUTPUT"
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Iceland.xcodeproj -scheme Iceland \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build | tail -n 40
+
+      - name: Boot simulator
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+          xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 \
+            --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+          # Let the home screen settle before recording starts.
+          sleep 20
+
+      - name: Record UI tour
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          mkdir -p "$RECORDINGS/screenshots" raw
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force raw/iceland-demo.mp4 &
+          REC_PID=$!
+          sleep 3
+
+          set +e
+          xcodebuild test-without-building \
+            -project Iceland.xcodeproj -scheme Iceland \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            -resultBundlePath raw/UITour.xcresult \
+            -only-testing:IcelandUITests/AppTourUITests/testAppTour > raw/xcodebuild-test.log 2>&1 &
+          TEST_PID=$!
+
+          # Grab a still every few seconds while the tour runs.
+          i=0
+          while kill -0 "$TEST_PID" 2>/dev/null; do
+            sleep 6
+            i=$((i + 1))
+            xcrun simctl io "$UDID" screenshot --type=jpeg "$RECORDINGS/screenshots/$(printf '%02d' "$i").jpg" >/dev/null 2>&1
+          done
+          wait "$TEST_PID"
+          STATUS=$?
+          sleep 2
+
+          kill -INT "$REC_PID"
+          wait "$REC_PID"
+          tail -n 60 raw/xcodebuild-test.log
+          cp raw/iceland-demo.mp4 "$RECORDINGS/iceland-iphone18promax.mp4"
+          ls -lh "$RECORDINGS" "$RECORDINGS/screenshots"
+          exit $STATUS
+
+      - name: Upload recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iceland-iphone18promax-demo
+          path: |
+            Recordings/
+            raw/xcodebuild-test.log
+            raw/UITour.xcresult
+          if-no-files-found: warn
+
+      - name: Commit recording to the branch
+        if: success() && github.ref_type == 'branch'
+        run: |
+          size=$(stat -f%z "$RECORDINGS/iceland-iphone18promax.mp4")
+          if [ "$size" -gt 95000000 ]; then
+            echo "Video is $size bytes, too large to commit; it is still available as an artifact."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Recordings
+          git commit -m "Add iPhone 18 Pro Max demo recording [skip ci]" || exit 0
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
