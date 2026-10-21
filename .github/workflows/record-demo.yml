@@ -73,10 +73,12 @@ jobs:
           xcrun simctl io "$UDID" recordVideo --codec=h264 --force raw/iceland-demo.mp4 > raw/record.log 2>&1 &
           REC_PID=$!
           # recordVideo can take close to a minute to attach to the display.
-          for _ in $(seq 1 120); do
+          for _ in $(seq 1 600); do
             grep -q "Recording started" raw/record.log && break
-            sleep 1
+            sleep 0.2
           done
+          # Wall-clock start of the video, used to line up the test's TOUR_START/TOUR_END markers.
+          python3 -c 'import time; print(time.time())' > raw/record-start.txt
           cat raw/record.log
           sleep 2
 
@@ -108,14 +110,14 @@ jobs:
           ls -lh raw/iceland-demo.mp4 "$RECORDINGS/screenshots"
           exit $STATUS
 
-      # The raw simulator capture is ~150 MB at full resolution, too big to commit.
-      - name: Compress video
+      # Cut the home screen / launch screen before the tour and the teardown after it, and
+      # re-encode: the raw simulator capture is ~150 MB at full resolution, too big to commit.
+      - name: Trim and compress video
         if: always() && hashFiles('raw/iceland-demo.mp4') != ''
         run: |
           brew install ffmpeg
-          ffmpeg -y -loglevel error -i raw/iceland-demo.mp4 \
-            -vf "scale=-2:1920,fps=30" -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p \
-            -movflags +faststart -an "$RECORDINGS/iceland-iphone18promax.mp4"
+          python3 scripts/trim_video.py raw/iceland-demo.mp4 raw/xcodebuild-test.log \
+            "$(cat raw/record-start.txt)" "$RECORDINGS/iceland-iphone18promax.mp4"
           ls -lh "$RECORDINGS/iceland-iphone18promax.mp4"
 
       - name: Upload recording

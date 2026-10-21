@@ -14,6 +14,7 @@ final class AppTourUITests: XCTestCase {
     func testAppTour() throws {
         app.launch()
         XCTAssertTrue(app.otherElements["hero"].waitForExistence(timeout: 15) || app.images.firstMatch.waitForExistence(timeout: 5))
+        markRecording("TOUR_START")
         pause(3)
 
         // Explore tab: browse the featured carousel.
@@ -108,9 +109,15 @@ final class AppTourUITests: XCTestCase {
 
         tab("探索").tap()
         pause(2)
+        markRecording("TOUR_END")
     }
 
     // MARK: - Helpers
+
+    /// CI trims the screen recording to these wall-clock markers (scripts/trim_video.py).
+    private func markRecording(_ label: String) {
+        print("\(label) \(Date().timeIntervalSince1970)")
+    }
 
     private func pause(_ seconds: TimeInterval) {
         Thread.sleep(forTimeInterval: seconds)

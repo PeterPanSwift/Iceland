@@ -23,6 +23,6 @@
 2. 下載 Commons 照片 → `xcodegen generate` 產生 Xcode 專案
 3. `build-for-testing` 後開機 **iPhone 18 Pro Max** 模擬器
 4. `xcrun simctl io recordVideo` 錄影，同時執行 UI 測試 [`AppTourUITests`](IcelandUITests/AppTourUITests.swift) 自動操作 App
-5. 以 ffmpeg 壓縮影片（原始錄影約 150 MB），上傳成 Actions artifact，並 commit 回分支的 [`Recordings/`](Recordings) 資料夾
+5. [`scripts/trim_video.py`](scripts/trim_video.py) 依 UI 測試印出的開始/結束時間剪掉前後多餘畫面，再以 ffmpeg 壓縮（原始錄影約 150 MB），上傳成 Actions artifact，並 commit 回分支的 [`Recordings/`](Recordings) 資料夾
 
 Workflow：[`.github/workflows/record-demo.yml`](.github/workflows/record-demo.yml)
