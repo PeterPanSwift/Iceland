@@ -105,9 +105,18 @@ jobs:
           kill -INT "$REC_PID"
           wait "$REC_PID"
           tail -n 60 raw/xcodebuild-test.log
-          cp raw/iceland-demo.mp4 "$RECORDINGS/iceland-iphone18promax.mp4"
-          ls -lh "$RECORDINGS" "$RECORDINGS/screenshots"
+          ls -lh raw/iceland-demo.mp4 "$RECORDINGS/screenshots"
           exit $STATUS
+
+      # The raw simulator capture is ~150 MB at full resolution, too big to commit.
+      - name: Compress video
+        if: always() && hashFiles('raw/iceland-demo.mp4') != ''
+        run: |
+          brew install ffmpeg
+          ffmpeg -y -loglevel error -i raw/iceland-demo.mp4 \
+            -vf "scale=-2:1920,fps=30" -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p \
+            -movflags +faststart -an "$RECORDINGS/iceland-iphone18promax.mp4"
+          ls -lh "$RECORDINGS/iceland-iphone18promax.mp4"
 
       - name: Upload recording
         if: always()
@@ -116,6 +125,7 @@ jobs:
           name: iceland-iphone18promax-demo
           path: |
             Recordings/
+            raw/iceland-demo.mp4
             raw/xcodebuild-test.log
             raw/UITour.xcresult
           if-no-files-found: warn
