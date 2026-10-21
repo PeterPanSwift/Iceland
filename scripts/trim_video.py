@@ -72,7 +72,7 @@ if tour_start is not None and tour_end is not None:
     # ends before the tour (allowing for clock drift) is the launch screen.
     launch_ends = [b for a, b in white_screens(raw) if b - a >= 1.0 and b <= tour_start + 20]
     if launch_ends:
-        start = max(launch_ends) + 0.05
+        start = max(launch_ends) + 0.3  # skip the launch cross-fade
         print(f"launch screen ends at {start:.2f}s")
     else:
         start = max(tour_start - 1.0, 0.0)

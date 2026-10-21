@@ -13,7 +13,9 @@ final class AppTourUITests: XCTestCase {
 
     func testAppTour() throws {
         app.launch()
-        XCTAssertTrue(app.otherElements["hero"].waitForExistence(timeout: 15) || app.images.firstMatch.waitForExistence(timeout: 5))
+        // The hero title is on screen as soon as the first frame renders; TOUR_START must be
+        // printed right then because the video trim measures the tour from that moment.
+        XCTAssertTrue(app.staticTexts["冰島"].waitForExistence(timeout: 30))
         markRecording("TOUR_START")
         pause(3)
 
