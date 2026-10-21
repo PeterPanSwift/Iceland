@@ -106,7 +106,7 @@ jobs:
 
           kill -INT "$REC_PID"
           wait "$REC_PID"
-          tail -n 60 raw/xcodebuild-test.log
+          cat raw/xcodebuild-test.log
           ls -lh raw/iceland-demo.mp4 "$RECORDINGS/screenshots"
           exit $STATUS
 

@@ -15,6 +15,8 @@ import subprocess
 import sys
 
 raw, log_path, rec_start, output = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4]
+FREEZE_LIMIT = 4.0
+FREEZE_KEEP = 1.5
 
 
 def marker(name, log):
@@ -37,6 +39,17 @@ def white_screens(path):
     return [(float(a), float(b)) for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", result.stderr)]
 
 
+def freezes(path, start, end):
+    """(start, end) of still stretches, in seconds from `start`."""
+    result = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-ss", f"{start:.2f}", "-to", f"{end:.2f}", "-i", path, "-an",
+         "-vf", f"scale=-2:480,freezedetect=n=0.002:d={FREEZE_LIMIT}", "-f", "null", "-"],
+        capture_output=True, text=True)
+    starts = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", result.stderr)]
+    ends = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", result.stderr)]
+    return list(zip(starts, ends))
+
+
 log = open(log_path, encoding="utf-8", errors="replace").read()
 length = duration(raw)
 tour_start, tour_end = marker("TOUR_START", log), marker("TOUR_END", log)
@@ -54,8 +67,17 @@ if end <= start:
     start, end = 0.0, length
 print(f"keeping {start:.2f}s – {end:.2f}s")
 
+cuts = [(a + FREEZE_KEEP, b) for a, b in freezes(raw, start, end)]
+for a, b in cuts:
+    print(f"shortening still frame {a - FREEZE_KEEP:.1f}s – {b:.1f}s")
+video_filter = "fps=30"
+if cuts:
+    dropped = "+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in cuts)
+    video_filter += f",select='not({dropped})',setpts=N/30/TB"
+video_filter += ",scale=-2:1920"
+
 subprocess.run(
     ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.2f}", "-to", f"{end:.2f}", "-i", raw,
-     "-vf", "scale=-2:1920,fps=30", "-c:v", "libx264", "-preset", "slow", "-crf", "26",
+     "-vf", video_filter, "-c:v", "libx264", "-preset", "slow", "-crf", "26",
      "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", output],
     check=True)

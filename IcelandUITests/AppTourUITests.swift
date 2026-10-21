@@ -62,7 +62,10 @@ final class AppTourUITests: XCTestCase {
         pause(2)
         goBack()
         pause(1)
-        scrollUntilHittable(app.buttons["row-dettifoss"], in: mainScroll)
+        // The last rows can't clear scrollUntilHittable's bottom margin, so just scroll to the end.
+        mainScroll.swipeUp(velocity: .slow)
+        pause(1)
+        mainScroll.swipeUp(velocity: .slow)
         pause(1.5)
 
         // Map tab: jump between attractions.
