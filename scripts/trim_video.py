@@ -3,9 +3,13 @@
 
 The recording starts long before the app is on screen (home screen, test runner launch,
 white launch screen) and keeps running after the test tears the app down. The UI test
-prints `TOUR_START <epoch>` / `TOUR_END <epoch>`; together with the wall-clock time the
-recording started, they give rough cut points. The start is then snapped to the end of the
-white launch screen, found with ffmpeg's blackdetect on the inverted video.
+prints `TOUR_START <epoch>` / `TOUR_END <epoch>` once the app is on screen and when the tour
+is done.
+
+The video timeline drifts from the wall clock by up to ~10 s between runs, so the cut is
+anchored on the video itself: the tour starts where the white launch screen ends (found
+with ffmpeg's blackdetect on the inverted video) and lasts TOUR_END - TOUR_START. The
+wall-clock recording start is only a fallback when no launch screen is found.
 
 usage: trim_video.py RAW_VIDEO XCODEBUILD_LOG RECORDING_START_EPOCH OUTPUT
 """
@@ -45,9 +49,16 @@ def freezes(path, start, end):
         ["ffmpeg", "-hide_banner", "-ss", f"{start:.2f}", "-to", f"{end:.2f}", "-i", path, "-an",
          "-vf", f"scale=-2:480,freezedetect=n=0.002:d={FREEZE_LIMIT}", "-f", "null", "-"],
         capture_output=True, text=True)
-    starts = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", result.stderr)]
-    ends = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", result.stderr)]
-    return list(zip(starts, ends))
+    stretches, current = [], None
+    for kind, value in re.findall(r"freeze_(start|end): ([\d.]+)", result.stderr):
+        if kind == "start":
+            current = float(value)
+        elif current is not None:
+            stretches.append((current, float(value)))
+            current = None
+    if current is not None:  # still frozen when the clip ends
+        stretches.append((current, end - start))
+    return [(a, b) for a, b in stretches if b > a]
 
 
 log = open(log_path, encoding="utf-8", errors="replace").read()
@@ -55,14 +66,17 @@ length = duration(raw)
 tour_start, tour_end = marker("TOUR_START", log), marker("TOUR_END", log)
 print(f"recording {length:.1f}s, markers start={tour_start} end={tour_end}")
 
-start = 0.0
-if tour_start is not None:
-    start = max(tour_start - 1.0, 0.0)
-    # The launch screen ends a moment before the test sees the hero image.
-    launch_ends = [end for _, end in white_screens(raw) if tour_start - 15 <= end <= tour_start + 2]
+start, end = 0.0, length
+if tour_start is not None and tour_end is not None:
+    # Nothing in the tour itself is a full white screen, so the last white stretch that
+    # ends before the tour (allowing for clock drift) is the launch screen.
+    launch_ends = [b for a, b in white_screens(raw) if b - a >= 1.0 and b <= tour_start + 20]
     if launch_ends:
         start = max(launch_ends) + 0.05
-end = min(tour_end + 0.3, length) if tour_end is not None else length
+        print(f"launch screen ends at {start:.2f}s")
+    else:
+        start = max(tour_start - 1.0, 0.0)
+    end = min(start + (tour_end - tour_start) + 0.3, length)
 if end <= start:
     start, end = 0.0, length
 print(f"keeping {start:.2f}s – {end:.2f}s")
